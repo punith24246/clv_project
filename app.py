@@ -44,7 +44,8 @@ def load_all():
     try:
         rfm      = pd.read_csv('rfm_with_churn.csv')
         survival = pd.read_csv('survival_data.csv')
-        clv      = pd.read_csv('clv_predictions.csv', index_col=0)
+        # Use final_clv_predictions.csv which has all data properly aligned with CustomerID
+        clv      = pd.read_csv('final_clv_predictions.csv')
         return rfm, survival, clv
     except Exception as e:
         st.error(f"Data not found: {e}. Run the main notebook first.")
@@ -94,15 +95,19 @@ if page == "🏠 Overview":
         with col1:
             st.metric("Total Customers", f"{len(rfm_df):,}")
         with col2:
-            churn_rate = (rfm_df['bayesian_churn_prob'] > 0.5).mean()
-            st.metric("Est. Churn Rate", f"{churn_rate:.1%}")
+            if 'bayesian_churn_prob' in rfm_df.columns:
+                churn_rate = (rfm_df['bayesian_churn_prob'] > 0.5).mean()
+                st.metric("Est. Churn Rate", f"{churn_rate:.1%}")
+            else:
+                st.metric("Est. Churn Rate", "N/A")
         with col3:
-            if clv_df is not None:
+            if clv_df is not None and 'clv_12m' in clv_df.columns:
                 avg_clv = clv_df['clv_12m'].mean()
                 st.metric("Avg 12M CLV", f"£{avg_clv:.0f}")
         with col4:
-            champions = (rfm_df['segment'] == 'Champions').sum()
-            st.metric("Champion Customers", f"{champions:,}")
+            if 'segment' in rfm_df.columns:
+                champions = (rfm_df['segment'] == 'Champions').sum()
+                st.metric("Champion Customers", f"{champions:,}")
 
         st.markdown("---")
 
@@ -167,10 +172,11 @@ if page == "🏠 Overview":
             st.plotly_chart(fig, use_container_width=True)
 
         # Pareto insight
-        rfm_sorted  = rfm_df.sort_values('monetary', ascending=False)
-        top20_rev   = rfm_sorted.head(int(len(rfm_df)*0.2))['monetary'].sum()
-        pareto_pct  = top20_rev / rfm_df['monetary'].sum() * 100
-        st.info(f"💡 **Pareto Insight:** Top 20% of customers contribute **{pareto_pct:.0f}%** of total revenue. Prioritise retention for Champions and Loyal segments.")
+        if 'monetary' in rfm_df.columns and rfm_df['monetary'].sum() > 0:
+            rfm_sorted  = rfm_df.sort_values('monetary', ascending=False)
+            top20_rev   = rfm_sorted.head(int(len(rfm_df)*0.2))['monetary'].sum()
+            pareto_pct  = top20_rev / rfm_df['monetary'].sum() * 100
+            st.info(f"💡 **Pareto Insight:** Top 20% of customers contribute **{pareto_pct:.0f}%** of total revenue. Prioritise retention for Champions and Loyal segments.")
 
 
 # ----------------------------------------------------------------
@@ -187,89 +193,100 @@ elif page == "🔍 Customer Lookup":
             rfm_df['CustomerID'].astype(str).tolist()
         )
 
-        cust = rfm_df[rfm_df['CustomerID'].astype(str) == str(customer_id)].iloc[0]
+        cust_data = rfm_df[rfm_df['CustomerID'].astype(str) == str(customer_id)]
+        if cust_data.empty:
+            st.error("Customer not found in data.")
+        else:
+            cust = cust_data.iloc[0]
 
-        col1, col2, col3 = st.columns(3)
+            col1, col2, col3 = st.columns(3)
 
-        with col1:
-            st.subheader("RFM Profile")
-            st.metric("Segment",   cust['segment'])
-            st.metric("Recency",   f"{cust['recency']:.0f} days")
-            st.metric("Frequency", f"{cust['frequency']:.0f} purchases")
-            st.metric("Monetary",  f"£{cust['monetary']:.2f}")
-            st.metric("RFM Score", f"{cust['rfm_score']}/15")
+            with col1:
+                st.subheader("RFM Profile")
+                st.metric("Segment",   cust.get('segment', 'N/A'))
+                st.metric("Recency",   f"{cust.get('recency', 0):.0f} days" if 'recency' in cust else "N/A")
+                st.metric("Frequency", f"{cust.get('frequency', 0):.0f} purchases" if 'frequency' in cust else "N/A")
+                st.metric("Monetary",  f"£{cust.get('monetary', 0):.2f}" if 'monetary' in cust else "N/A")
+                st.metric("RFM Score", f"{cust.get('rfm_score', 'N/A')}/15" if 'rfm_score' in cust else "N/A")
 
-        with col2:
-            st.subheader("CLV Prediction")
-            if clv_df is not None and str(customer_id) in clv_df.index:
-                cust_clv = clv_df.loc[str(customer_id)]
-                st.metric("12-Month CLV",
-                          f"£{cust_clv['clv_12m']:.2f}")
-                st.metric("Prob Still Active",
-                          f"{cust_clv['prob_alive']:.1%}")
-                st.metric("Predicted Purchases (90d)",
-                          f"{cust_clv['predicted_purchases_90d']:.1f}")
-            else:
-                st.info("CLV data not available for this customer")
+            with col2:
+                st.subheader("CLV Prediction")
+                if clv_df is not None:
+                    # Look up customer by CustomerID column (not index)
+                    try:
+                        cust_clv_data = clv_df[clv_df['CustomerID'] == int(customer_id)]
+                        if not cust_clv_data.empty:
+                            cust_clv = cust_clv_data.iloc[0]
+                            st.metric("12-Month CLV",
+                                      f"£{float(cust_clv.get('clv_12m', 0)):.2f}")
+                            st.metric("Prob Still Active",
+                                      f"{float(cust_clv.get('prob_alive', 0)):.1%}")
+                            st.metric("Predicted Purchases (90d)",
+                                      f"{float(cust_clv.get('predicted_purchases_90d', 0)):.1f}")
+                        else:
+                            st.info("CLV data not available for this customer")
+                    except Exception as e:
+                        st.error(f"Error loading CLV data: {str(e)}")
+                else:
+                    st.info("CLV data not available")
 
-        with col3:
-            st.subheader("Churn Risk")
-            churn_prob = cust.get('bayesian_churn_prob', 0.5)
+            with col3:
+                st.subheader("Churn Risk")
+                churn_prob = cust.get('bayesian_churn_prob', 0.5)
 
-            if churn_prob >= 0.6:
-                risk = "🔴 HIGH RISK"
-                color = "#E74C3C"
-                action = "Immediate re-engagement campaign"
-            elif churn_prob >= 0.4:
-                risk = "🟡 MEDIUM RISK"
-                color = "#F39C12"
-                action = "Send personalised offer"
-            else:
-                risk = "🟢 LOW RISK"
-                color = "#2ECC71"
-                action = "Maintain engagement"
+                if churn_prob >= 0.6:
+                    risk = "🔴 HIGH RISK"
+                    color = "#E74C3C"
+                    action = "Immediate re-engagement campaign"
+                elif churn_prob >= 0.4:
+                    risk = "🟡 MEDIUM RISK"
+                    color = "#F39C12"
+                    action = "Send personalised offer"
+                else:
+                    risk = "🟢 LOW RISK"
+                    color = "#2ECC71"
+                    action = "Maintain engagement"
 
-            st.markdown(f"""
-            <div style='background:{color}20;border:2px solid {color};
-                        border-radius:10px;padding:1rem;text-align:center'>
-                <h3 style='color:{color};margin:0'>{risk}</h3>
-                <h2 style='color:{color};margin:0.3rem 0'>{churn_prob:.0%}</h2>
-                <p style='color:#555;margin:0'>Churn Probability</p>
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown(f"**Action:** {action}")
+                st.markdown(f"""
+                <div style='background:{color}20;border:2px solid {color};
+                            border-radius:10px;padding:1rem;text-align:center'>
+                    <h3 style='color:{color};margin:0'>{risk}</h3>
+                    <h2 style='color:{color};margin:0.3rem 0'>{churn_prob:.0%}</h2>
+                    <p style='color:#555;margin:0'>Churn Probability</p>
+                </div>
+                """, unsafe_allow_html=True)
+                st.markdown(f"**Action:** {action}")
 
-        # Bayesian probability gauge
-        st.markdown("---")
-        st.subheader("Bayesian Churn Probability — How It Updates")
+            # Bayesian probability gauge
+            st.markdown("---")
+            st.subheader("Bayesian Churn Probability — How It Updates")
 
-        # Simulate history for this customer
-        np.random.seed(hash(str(customer_id)) % 2**32)
-        churn_base = churn_prob
-        history = [1 if np.random.random() > churn_base else 0 for _ in range(12)]
+            # Simulate history for this customer
+            np.random.seed(hash(str(customer_id)) % 2**32)
+            churn_base = churn_prob
+            history = [1 if np.random.random() > churn_base else 0 for _ in range(12)]
 
-        from scipy.stats import beta as beta_dist
-        alpha, beta_p = 2, 2
-        probs = []
-        for p in history:
-            alpha  += p
-            beta_p += (1-p)
-            probs.append(beta_p / (alpha + beta_p))
+            alpha, beta_p = 2, 2
+            probs = []
+            for p in history:
+                alpha  += p
+                beta_p += (1-p)
+                probs.append(beta_p / (alpha + beta_p))
 
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=list(range(1,13)), y=probs,
-            mode='lines+markers', name='Churn Probability',
-            line=dict(color=color, width=2)
-        ))
-        fig.add_hline(y=0.5, line_dash='dash', line_color='black',
-                      annotation_text='50% threshold')
-        fig.update_layout(
-            title='Bayesian Churn Probability Over 12 Months',
-            xaxis_title='Month', yaxis_title='P(Churn)',
-            yaxis=dict(range=[0,1])
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=list(range(1,13)), y=probs,
+                mode='lines+markers', name='Churn Probability',
+                line=dict(color=color, width=2)
+            ))
+            fig.add_hline(y=0.5, line_dash='dash', line_color='black',
+                          annotation_text='50% threshold')
+            fig.update_layout(
+                title='Bayesian Churn Probability Over 12 Months',
+                xaxis_title='Month', yaxis_title='P(Churn)',
+                yaxis=dict(range=[0,1])
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 
 # ----------------------------------------------------------------
@@ -283,64 +300,101 @@ elif page == "📈 Survival Curves":
     if survival_df is not None:
         from lifelines import KaplanMeierFitter
 
-        col1, col2 = st.columns(2)
+        if 'segment' not in survival_df.columns or 'lifetime_days' not in survival_df.columns or 'churned' not in survival_df.columns:
+            st.error("Required columns (segment, lifetime_days, churned) not found in survival data.")
+        else:
+            col1, col2 = st.columns(2)
 
-        with col1:
-            # KM curves
-            fig, ax = plt.subplots(figsize=(10, 6))
-            colors = {'Champions':'#9B59B6','Loyal':'#3498DB',
-                      'Recent':'#2ECC71','Lost':'#E74C3C'}
+            with col1:
+                # KM curves
+                fig, ax = plt.subplots(figsize=(10, 6))
+                colors = {'Champions':'#9B59B6','Loyal':'#3498DB',
+                          'Recent':'#2ECC71','Lost':'#E74C3C'}
 
+                has_data = False
+                for seg in ['Champions','Loyal','Recent','Lost']:
+                    seg_data = survival_df[survival_df['segment'] == seg]
+                    if len(seg_data) < 5: continue
+                    has_data = True
+                    kmf = KaplanMeierFitter()
+                    kmf.fit(seg_data['lifetime_days'], seg_data['churned'],
+                            label=f"{seg} (n={len(seg_data)})")
+                    kmf.plot_survival_function(ax=ax, ci_show=False,
+                                               color=colors[seg])
+
+                if has_data:
+                    ax.set_title('Kaplan-Meier Survival Curves by Segment')
+                    ax.set_xlabel('Days since First Purchase')
+                    ax.set_ylabel('P(Still Active)')
+                    ax.grid(True, alpha=0.3)
+                    st.pyplot(fig)
+                else:
+                    st.warning("Not enough data to plot survival curves.")
+
+            with col2:
+                # Churn rate by segment
+                churn_by_seg = survival_df.groupby('segment')['churned'].agg(
+                    ['mean','count']
+                ).reset_index()
+                churn_by_seg.columns = ['Segment','Churn Rate','Count']
+                churn_by_seg['Churn Rate'] = (churn_by_seg['Churn Rate']*100).round(1)
+
+                if len(churn_by_seg) > 0:
+                    fig = px.bar(
+                        churn_by_seg, x='Segment', y='Churn Rate',
+                        title='Churn Rate by Segment (%)',
+                        color='Segment',
+                        color_discrete_map=colors,
+                        text='Churn Rate'
+                    )
+                    fig.update_traces(texttemplate='%{text}%', textposition='outside')
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("No churn data available.")
+
+            # Median survival times
+            st.subheader("Median Survival Times by Segment")
+            median_data = []
             for seg in ['Champions','Loyal','Recent','Lost']:
                 seg_data = survival_df[survival_df['segment'] == seg]
-                if len(seg_data) < 5: continue
-                kmf = KaplanMeierFitter()
-                kmf.fit(seg_data['lifetime_days'], seg_data['churned'],
-                        label=f"{seg} (n={len(seg_data)})")
-                kmf.plot_survival_function(ax=ax, ci_show=False,
-                                           color=colors[seg])
+                if len(seg_data) < 5:
+                    continue
+                try:
+                    kmf = KaplanMeierFitter()
+                    kmf.fit(seg_data['lifetime_days'], seg_data['churned'])
+                    median_val = kmf.median_survival_time_
 
-            ax.set_title('Kaplan-Meier Survival Curves by Segment')
-            ax.set_xlabel('Days since First Purchase')
-            ax.set_ylabel('P(Still Active)')
-            ax.grid(True, alpha=0.3)
-            st.pyplot(fig)
+                    # Handle NaN and inf - use max lifetime if median is not available
+                    if pd.isna(median_val) or np.isinf(median_val):
+                        median_val = float(seg_data['lifetime_days'].max())
+                    else:
+                        median_val = float(median_val)
 
-        with col2:
-            # Churn rate by segment
-            churn_by_seg = survival_df.groupby('segment')['churned'].agg(
-                ['mean','count']
-            ).reset_index()
-            churn_by_seg.columns = ['Segment','Churn Rate','Count']
-            churn_by_seg['Churn Rate'] = (churn_by_seg['Churn Rate']*100).round(1)
+                    # Final safety check - ensure it's a valid number
+                    if not np.isfinite(median_val) or median_val < 0:
+                        median_val = float(seg_data['lifetime_days'].max())
 
-            fig = px.bar(
-                churn_by_seg, x='Segment', y='Churn Rate',
-                title='Churn Rate by Segment (%)',
-                color='Segment',
-                color_discrete_map=colors,
-                text='Churn Rate'
-            )
-            fig.update_traces(texttemplate='%{text}%', textposition='outside')
-            st.plotly_chart(fig, use_container_width=True)
+                    median_data.append({
+                        'Segment': seg,
+                        'Median Survival (days)': f"{median_val:.0f}",
+                        'Churn Rate': f"{seg_data['churned'].mean():.1%}",
+                        'Count': len(seg_data)
+                    })
+                except Exception as e:
+                    # If calculation fails, use max lifetime
+                    max_lifetime = float(seg_data['lifetime_days'].max())
+                    median_data.append({
+                        'Segment': seg,
+                        'Median Survival (days)': f"{max_lifetime:.0f}",
+                        'Churn Rate': f"{seg_data['churned'].mean():.1%}",
+                        'Count': len(seg_data)
+                    })
 
-        # Median survival times
-        st.subheader("Median Survival Times by Segment")
-        median_data = []
-        for seg in ['Champions','Loyal','Recent','Lost']:
-            seg_data = survival_df[survival_df['segment'] == seg]
-            if len(seg_data) < 5: continue
-            kmf = KaplanMeierFitter()
-            kmf.fit(seg_data['lifetime_days'], seg_data['churned'])
-            median_data.append({
-                'Segment': seg,
-                'Median Survival (days)': kmf.median_survival_time_,
-                'Churn Rate': f"{seg_data['churned'].mean():.1%}",
-                'Count': len(seg_data)
-            })
-
-        st.dataframe(pd.DataFrame(median_data),
-                     use_container_width=True, hide_index=True)
+            if median_data:
+                st.dataframe(pd.DataFrame(median_data),
+                             use_container_width=True, hide_index=True)
+            else:
+                st.warning("Not enough data to calculate median survival times.")
 
 
 # ----------------------------------------------------------------
@@ -351,126 +405,137 @@ elif page == "💰 CLV Leaderboard":
     st.markdown("*Top customers ranked by predicted 12-month CLV*")
 
     if clv_df is not None and rfm_df is not None:
+        # Data is already properly aligned since final_clv_predictions.csv contains all merged data
+        clv_seg = clv_df.copy()
+        
+        # Ensure CustomerID exists
+        if 'CustomerID' not in clv_seg.columns:
+            st.error("CustomerID column missing from CLV data")
+        elif 'segment' not in clv_seg.columns:
+            st.error("segment column missing from CLV data")
+        else:
+            # Check required columns exist
+            required_cols = ['clv_12m', 'prob_alive', 'predicted_purchases_90d']
+            missing_cols = [col for col in required_cols if col not in clv_seg.columns]
+            if missing_cols:
+                st.error(f"Missing required columns in CLV data: {', '.join(missing_cols)}")
+                st.write("Available columns:", clv_seg.columns.tolist())
+            else:
+                # Fill NaN values in numeric columns and convert to float
+                for col in required_cols:
+                    if col in clv_seg.columns:
+                        clv_seg[col] = pd.to_numeric(clv_seg[col], errors='coerce').fillna(0)
 
-        # -----------------------------
-        # 🔧 SAFE DATA ALIGNMENT FIX
-        # -----------------------------
-        clv_temp = clv_df.copy()
-        rfm_temp = rfm_df.copy()
+                # Convert clv_12m to numeric and remove any inf values
+                clv_seg['clv_12m'] = clv_seg['clv_12m'].replace([np.inf, -np.inf], 0)
+                clv_seg['prob_alive'] = clv_seg['prob_alive'].replace([np.inf, -np.inf], 0)
+                clv_seg['predicted_purchases_90d'] = clv_seg['predicted_purchases_90d'].replace([np.inf, -np.inf], 0)
 
-        # Ensure CustomerID exists in both
-        if 'CustomerID' not in clv_temp.columns:
-            clv_temp = clv_temp.reset_index()
-            clv_temp.rename(columns={'index': 'CustomerID'}, inplace=True)
+                # -----------------------------
+                # 📊 METRICS
+                # -----------------------------
+                col1, col2, col3 = st.columns(3)
 
-        if 'CustomerID' not in rfm_temp.columns:
-            rfm_temp = rfm_temp.reset_index()
+                with col1:
+                    total_clv = clv_seg['clv_12m'].sum()
+                    st.metric("Total Predicted CLV (12M)", f"£{total_clv:,.0f}")
 
-        # Clean column names (VERY IMPORTANT)
-        clv_temp.columns = clv_temp.columns.str.strip()
-        rfm_temp.columns = rfm_temp.columns.str.strip()
+                with col2:
+                    if total_clv > 0 and len(clv_seg) > 0:
+                        top10 = clv_seg.nlargest(int(max(1, len(clv_seg) * 0.1)), 'clv_12m')
+                        top10_pct = (top10['clv_12m'].sum() / total_clv) * 100
+                        st.metric("Top 10% Contribution", f"{top10_pct:.0f}%")
+                    else:
+                        st.metric("Top 10% Contribution", "N/A")
 
-        # -----------------------------
-        # 🔗 SAFE MERGE
-        # -----------------------------
-        clv_seg = clv_temp.merge(
-            rfm_temp[['CustomerID', 'segment']],
-            on='CustomerID',
-            how='left'
-        )
+                with col3:
+                    st.metric("Total Customers", len(clv_seg))
 
-        # -----------------------------
-        # 📊 METRICS
-        # -----------------------------
-        col1, col2, col3 = st.columns(3)
+                st.markdown("---")
 
-        with col1:
-            total_clv = clv_seg['clv_12m'].sum()
-            st.metric("Total Predicted CLV (12M)", f"£{total_clv:,.0f}")
+                # Check if there's data to display
+                if len(clv_seg) == 0:
+                    st.warning("No CLV data available.")
+                else:
+                    # 🏆 TOP CUSTOMERS TABLE
+                    if 'clv_12m' in clv_seg.columns:
+                        top20 = clv_seg.nlargest(20, 'clv_12m').copy()
 
-        with col2:
-            top10 = clv_seg.nlargest(int(len(clv_seg) * 0.1), 'clv_12m')
-            top10_pct = (top10['clv_12m'].sum() / total_clv) * 100
-            st.metric("Top 10% Contribution", f"{top10_pct:.0f}%")
+                        # Select only available columns
+                        display_cols = [col for col in [
+                            'CustomerID',
+                            'clv_12m',
+                            'prob_alive',
+                            'predicted_purchases_90d',
+                            'segment'
+                        ] if col in top20.columns]
 
-        with col3:
-            st.metric("Total Customers", len(clv_seg))
+                        top20 = top20[display_cols]
 
-        st.markdown("---")
+                        if len(top20) > 0:
+                            top20.columns = [
+                                col.replace('_', ' ').title()
+                                for col in display_cols
+                            ]
 
-        # -----------------------------
-        # 🏆 TOP CUSTOMERS TABLE
-        # -----------------------------
-        top20 = clv_seg.nlargest(20, 'clv_12m')[[
-            'CustomerID',
-            'clv_12m',
-            'prob_alive',
-            'predicted_purchases_90d',
-            'segment'
-        ]].copy()
+                            st.subheader("🏆 Top 20 Customers by CLV")
+                            st.dataframe(top20, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No top customers to display.")
+                    else:
+                        st.error("clv_12m column not found")
 
-        top20.columns = [
-            'CustomerID',
-            '12M CLV (£)',
-            'P(Alive)',
-            'Pred Purchases (90d)',
-            'Segment'
-        ]
+                    # 📊 CLV BY SEGMENT
+                    seg_summary = clv_seg.groupby('segment')['clv_12m'].agg(
+                        ['mean', 'sum', 'count']
+                    ).reset_index()
 
-        st.subheader("🏆 Top 20 Customers by CLV")
-        st.dataframe(top20, use_container_width=True, hide_index=True)
+                    if len(seg_summary) > 0:
+                        seg_summary.columns = [
+                            'Segment',
+                            'Avg CLV',
+                            'Total CLV',
+                            'Count'
+                        ]
 
-        # -----------------------------
-        # 📊 CLV BY SEGMENT
-        # -----------------------------
-        seg_summary = clv_seg.groupby('segment')['clv_12m'].agg(
-            ['mean', 'sum', 'count']
-        ).reset_index()
+                        st.subheader("📊 CLV by Segment")
+                        st.dataframe(seg_summary, use_container_width=True)
 
-        seg_summary.columns = [
-            'Segment',
-            'Avg CLV',
-            'Total CLV',
-            'Count'
-        ]
+                        # 📈 VISUALIZATION
+                        fig = px.bar(
+                            seg_summary,
+                            x='Segment',
+                            y='Total CLV',
+                            color='Segment',
+                            text='Total CLV',
+                            title='Total CLV by Customer Segment'
+                        )
 
-        st.subheader("📊 CLV by Segment")
+                        fig.update_traces(texttemplate='£%{text:,.0f}', textposition='outside')
+                        st.plotly_chart(fig, use_container_width=True)
 
-        st.dataframe(seg_summary, use_container_width=True)
+                        # Only show scatter if we have valid data
+                        if 'prob_alive' in clv_seg.columns:
+                            # Check for NaN values
+                            valid_data = clv_seg.dropna(subset=['prob_alive', 'clv_12m'])
+                            if len(valid_data) > 0:
+                                # 📉 CLV vs CHURN SCATTER
+                                fig2 = px.scatter(
+                                    valid_data,
+                                    x='prob_alive',
+                                    y='clv_12m',
+                                    color='segment',
+                                    size='clv_12m',
+                                    title='CLV vs Probability of Being Active',
+                                    labels={
+                                        'prob_alive': 'P(Alive)',
+                                        'clv_12m': '12-Month CLV (£)'
+                                    }
+                                )
 
-        # -----------------------------
-        # 📈 VISUALIZATION
-        # -----------------------------
-        fig = px.bar(
-            seg_summary,
-            x='Segment',
-            y='Total CLV',
-            color='Segment',
-            text='Total CLV',
-            title='Total CLV by Customer Segment'
-        )
-
-        fig.update_traces(texttemplate='£%{text:,.0f}', textposition='outside')
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        # -----------------------------
-        # 📉 CLV vs CHURN SCATTER
-        # -----------------------------
-        fig2 = px.scatter(
-            clv_seg,
-            x='prob_alive',
-            y='clv_12m',
-            color='segment',
-            size='clv_12m',
-            title='CLV vs Probability of Being Active',
-            labels={
-                'prob_alive': 'P(Alive)',
-                'clv_12m': '12-Month CLV (£)'
-            }
-        )
-
-        st.plotly_chart(fig2, use_container_width=True)
+                                st.plotly_chart(fig2, use_container_width=True)
+                    else:
+                        st.warning("No segment data available.")
 
     else:
         st.warning("CLV or RFM data not loaded properly.")
@@ -516,8 +581,13 @@ elif page == "🧠 Bayesian Updater":
             alpha  += purchased
             beta_p += (1 - purchased)
             prob    = beta_p / (alpha + beta_p)
-            ci_low  = beta_dist.ppf(0.025, alpha, beta_p)
-            ci_high = beta_dist.ppf(0.975, alpha, beta_p)
+            try:
+                ci_low  = beta_dist.ppf(0.025, alpha, beta_p)
+                ci_high = beta_dist.ppf(0.975, alpha, beta_p)
+            except:
+                ci_low, ci_high = 0, 1
+            if pd.isna(ci_low) or pd.isna(ci_high):
+                ci_low, ci_high = 0, 1
             probs.append(prob)
             ci_lows.append(ci_low)
             ci_highs.append(ci_high)
@@ -579,7 +649,10 @@ elif page == "🧠 Bayesian Updater":
         # Posterior distribution visualisation
         st.subheader("Posterior Beta Distribution — Current Belief")
         x = np.linspace(0, 1, 200)
-        y = beta_dist.pdf(x, alpha, beta_p)
+        try:
+            y = beta_dist.pdf(x, alpha, beta_p)
+        except:
+            y = np.zeros_like(x)
 
         fig2 = go.Figure()
         fig2.add_trace(go.Scatter(
