@@ -141,26 +141,58 @@ The dashboard will open at `http://localhost:8501` in your default browser.
 
 ---
 
-## 📂 Project Structure
+## 📁 Project Structure
 
+```bash
+CLV-Churn-Intelligence/
+│
+├── .config/
+│
+├── assets/
+│   ├── bayesian_churn_update.png
+│   ├── cox_hazard_ratios.png
+│   ├── eda_retail.png
+│   ├── km_curves.png
+│   ├── kmeans_selection.png
+│   ├── rfm_scatter.html
+│   └── ttest_confidence_interval.png
+│
+├── data/
+│   ├── clv_predictions.csv
+│   ├── final_clv_predictions.csv
+│   ├── retail_clean.csv
+│   ├── rfm_segments.csv
+│   ├── rfm_with_churn.csv
+│   └── survival_data.csv
+│
+├── models/
+│   ├── bgf_model.pkl
+│   ├── bgf_params.json
+│   ├── cox_model.pkl
+│   ├── ggf_model.pkl
+│   ├── ggf_params.json
+│   ├── rfm_kmeans.pkl
+│   └── rfm_scaler.pkl
+│
+├── notebooks/
+│   └── Clv_notebook.ipynb
+│
+├── scripts/
+│
+├── .gitattributes
+├── .gitignore
+├── README.md
+├── app.py
+└── online_retail_II.csv
 ```
-clv_project/
-├── app.py                          # Main Streamlit application
-├── clv_requirements.txt            # Python dependencies
-├── README.md                       # This file
-├── debug_data.py                   # Data validation script
-├── final_clv_predictions.csv       # CLV predictions (merged data - MAIN FILE)
-├── rfm_with_churn.csv              # RFM segmentation data
-├── survival_data.csv               # Survival analysis data
-├── clv_predictions.csv             # Raw CLV output
-├── rfm_segments.csv                # RFM clustering output
-├── bgf_params.json                 # BG/NBD model parameters
-├── ggf_params.json                 # Gamma-Gamma model parameters
-├── bgf_model.pkl                   # Trained BG/NBD model
-├── ggf_model.pkl                   # Trained Gamma-Gamma model
-├── cox_model.pkl                   # Trained Cox proportional hazards model
-├── online_retail_II.csv            # UCI Online Retail II dataset (source)
-└── clv_env/                        # Virtual environment directory
+### 📌 Folder Description
+
+- **assets/** → Generated visualizations, plots, and dashboard assets  
+- **data/** → Processed datasets used by the Streamlit dashboard  
+- **models/** → Trained ML/DL models and serialized objects  
+- **notebooks/** → Jupyter notebooks for experimentation and analysis  
+- **scripts/** → Helper scripts and preprocessing utilities  
+- **app.py** → Main Streamlit dashboard application  
 ```
 
 ---
