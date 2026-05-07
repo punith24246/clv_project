@@ -4,6 +4,9 @@ venv/
 env/
 .venv/
 
+
+.config/
+
 # Data Files (CSV - too large, regenerable from source)
 *.csv
 
