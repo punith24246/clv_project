@@ -146,7 +146,6 @@ The dashboard will open at `http://localhost:8501` in your default browser.
 ```bash
 CLV-Churn-Intelligence/
 │
-├── .config/
 │
 ├── assets/
 │   ├── bayesian_churn_update.png
